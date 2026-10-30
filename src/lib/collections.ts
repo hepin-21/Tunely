@@ -1,5 +1,6 @@
 import { audius, type Track } from '../api/audius'
 import { findRegional } from '../api/regional'
+import { MIN_QUALITY, uploadQuality } from './features'
 import { dedupeKey } from './text'
 
 const TTL = 10 * 60 * 1000
@@ -23,6 +24,8 @@ export function fetchCollection(slug: string): Promise<Track[]> {
       const seen = new Set<string>()
       return lists
         .flat()
+        // Generic compilations and keyword spam ("Bollywood Love Hindi Songs Best Hindi Love 2024") aren't songs
+        .filter((t) => uploadQuality(t) >= MIN_QUALITY)
         .sort((a, b) => b.plays - a.plays)
         .filter((t) => {
           const key = dedupeKey(t.title) || t.id

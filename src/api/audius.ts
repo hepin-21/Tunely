@@ -18,6 +18,12 @@ export interface Track {
   mood: string | null
   plays: number
   likes: number
+  /** Uploader's tags ("sad,arijit,bollywood"), used to work out the song's style */
+  tags?: string
+  /** Beats per minute from Audius's audio analysis */
+  bpm?: number | null
+  /** Ids of Audius playlists (made by other listeners) that contain this track */
+  playlistIds?: number[]
   /** Set when the track came from a regional collection (e.g. 'hindi'), so suggestions stay in that language */
   collection?: string
   /** Where it streams from; missing means Audius (tracks saved before YouTube support) */
@@ -126,6 +132,10 @@ function toTrack(t: any): Track {
     mood: t.mood ?? null,
     plays: t.play_count ?? 0,
     likes: t.favorite_count ?? 0,
+    tags: (t.tags ?? '').slice(0, 200) || undefined,
+    bpm: typeof t.bpm === 'number' && t.bpm > 0 ? Math.round(t.bpm) : null,
+    // The most recent few are enough for recommendations and keep saved queues small
+    playlistIds: (t.playlists_containing_track ?? []).slice(-12),
     collection: detectLanguage(t.title ?? '', t.tags ?? '', t.user?.name ?? ''),
     source: 'audius',
   }
@@ -211,6 +221,10 @@ export const audius = {
     get<unknown[]>('/playlists/trending', { limit, time: 'week' }).then((d) => (d as never[]).map(toPlaylist)),
 
   artist: (id: string) => get<unknown>(`/users/${id}`).then((d) => toArtist(d)),
+
+  /** Artists that fans of this artist also follow */
+  relatedArtists: (id: string, limit = 10) =>
+    get<unknown[]>(`/users/${id}/related`, { limit }).then((d) => (d as never[]).map(toArtist).filter((a) => a.trackCount > 0)),
 
   artistTracks: (id: string, limit = 50) =>
     get<unknown[]>(`/users/${id}/tracks`, { limit, sort: 'plays' }).then((d) => toTracks(d as never[])),

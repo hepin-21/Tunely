@@ -1,5 +1,5 @@
 import { audius, type Track } from '../api/audius'
-import { dedupeKey, queryTokens, significantTokens, tokens } from './text'
+import { dedupeKey, queryTokens, significantTokens, tokens, VERSION_WORDS } from './text'
 
 // Audius search returns at most ~30 tracks and needs every word to match, so a
 // full song name ("kya fitoor door raha") often finds nothing. We fall back to
@@ -34,12 +34,6 @@ function fallbackQueries(query: string): string[] {
   const full = words.join(' ')
   return [...new Set([...pairs.slice(0, 3), ...singles.slice(0, 3)])].filter((q) => q !== full)
 }
-
-// Words describing a version of a song rather than which song it is
-const VERSION_WORDS = new Set([
-  'slowed', 'reverb', 'lofi', 'lo', 'fi', 'remix', 'cover', '8d', 'instrumental', 'version', 'acoustic', 'unplugged',
-  'mashup', 'female', 'male', 'karaoke', 'sped', 'up', 'bass', 'boosted', 'dj', 'mix', 'reprise',
-])
 
 interface Scored {
   track: Track

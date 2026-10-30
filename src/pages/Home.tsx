@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { audius, GENRES, MOODS } from '../api/audius'
+import { audius, MOODS } from '../api/audius'
 import { findRegional, REGIONAL } from '../api/regional'
 import { SINGER_GROUPS, singersIn } from '../api/singers'
 import { SingerCard } from '../components/SingerCard'
 import { fetchCollection } from '../lib/collections'
+import { belongsInGenre } from '../lib/features'
 import { Artwork } from '../components/Artwork'
 import { CardSkeletons, ErrorState, PlaylistCard, RowSkeletons, Shelf, TrackCard } from '../components/Cards'
 import { PlayIcon, SparkleIcon } from '../components/Icons'
@@ -58,7 +59,7 @@ function MadeForYou() {
 }
 
 function GenreShelf({ genre, title }: { genre: string; title: string }) {
-  const { data, loading } = useAsync(() => audius.trending({ genre, limit: 16 }), [genre])
+  const { data, loading } = useAsync(() => audius.trending({ genre, limit: 16 }).then((ts) => ts.filter(belongsInGenre(genre))), [genre])
   if (!loading && !data?.length) return null
   return (
     <Shelf title={title} action={<Link className="link-more" to={`/genre/${encodeURIComponent(genre)}`}>Show all</Link>}>
@@ -109,25 +110,6 @@ export function HomePage() {
       </header>
 
       <QuickPicks />
-
-      {!profile.hasHistory && (
-        <section className="onboard">
-          <h2>What do you feel like listening to?</h2>
-          <p className="muted">Play or like a few songs and Tunely will start suggesting music just for you.</p>
-          <div className="chips">
-            {REGIONAL.slice(0, 4).map((c) => (
-              <Link key={c.slug} className="chip chip--color" style={{ ['--c' as string]: c.color }} to={`/india/${c.slug}`}>
-                {c.name}
-              </Link>
-            ))}
-            {GENRES.slice(0, 10).map((g) => (
-              <Link key={g.name} className="chip chip--color" style={{ ['--c' as string]: g.color }} to={`/genre/${encodeURIComponent(g.name)}`}>
-                {g.name}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
 
       <MadeForYou />
 

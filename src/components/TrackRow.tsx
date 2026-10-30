@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { Track } from '../api/audius'
+import { trustedGenre } from '../lib/features'
 import { formatCount, formatTime } from '../lib/format'
 import { useLibrary } from '../store/library'
 import { usePlayer } from '../store/player'
@@ -14,6 +15,8 @@ interface Props {
   context: Track[]
   showPlays?: boolean
   playlistId?: string
+  /** Play the song followed by recommendations instead of the rest of the list (search results) */
+  radio?: boolean
 }
 
 export function Equalizer() {
@@ -26,14 +29,15 @@ export function Equalizer() {
   )
 }
 
-export function TrackRow({ track, index, context, showPlays, playlistId }: Props) {
-  const { current, isPlaying, playTrack, toggle } = usePlayer()
+export function TrackRow({ track, index, context, showPlays, playlistId, radio }: Props) {
+  const { current, isPlaying, playTrack, startRadio, toggle } = usePlayer()
   const { isLiked, toggleLike } = useLibrary()
   const { openMenu, showToast } = useUI()
   const active = current?.id === track.id
   const liked = isLiked(track.id)
+  const genre = trustedGenre(track)
 
-  const onPlay = () => (active ? toggle() : playTrack(track, context))
+  const onPlay = () => (active ? toggle() : radio ? startRadio(track) : playTrack(track, context))
 
   return (
     <div className={`track-row ${active ? 'is-active' : ''}`} onDoubleClick={onPlay}>
@@ -51,9 +55,9 @@ export function TrackRow({ track, index, context, showPlays, playlistId }: Props
           </span>
         </span>
       </button>
-      {track.genre ? (
-        <Link className="track-row__genre" to={`/genre/${encodeURIComponent(track.genre)}`}>
-          {track.genre}
+      {genre ? (
+        <Link className="track-row__genre" to={`/genre/${encodeURIComponent(genre)}`}>
+          {genre}
         </Link>
       ) : (
         <span className="track-row__genre" />
@@ -77,11 +81,21 @@ export function TrackRow({ track, index, context, showPlays, playlistId }: Props
   )
 }
 
-export function TrackList({ tracks, showPlays, playlistId }: { tracks: Track[]; showPlays?: boolean; playlistId?: string }) {
+export function TrackList({
+  tracks,
+  showPlays,
+  playlistId,
+  radio,
+}: {
+  tracks: Track[]
+  showPlays?: boolean
+  playlistId?: string
+  radio?: boolean
+}) {
   return (
     <div className="track-list">
       {tracks.map((t, i) => (
-        <TrackRow key={t.id} track={t} index={i} context={tracks} showPlays={showPlays} playlistId={playlistId} />
+        <TrackRow key={t.id} track={t} index={i} context={tracks} showPlays={showPlays} playlistId={playlistId} radio={radio} />
       ))}
     </div>
   )

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { trustedGenre } from '../lib/features'
 import { songs } from '../lib/format'
 import { youtubeWatchUrl } from '../api/youtube'
 import { useLibrary } from '../store/library'
@@ -40,6 +41,7 @@ export function TrackMenu() {
   if (!menu) return null
   const { track, playlistId } = menu
   const liked = isLiked(track.id)
+  const genre = trustedGenre(track)
 
   const act = (fn: () => void) => () => {
     fn()
@@ -91,9 +93,9 @@ export function TrackMenu() {
             Go to artist
           </button>
         )}
-        {track.genre && (
-          <button role="menuitem" onClick={act(() => (setNowPlayingOpen(false), navigate(`/genre/${encodeURIComponent(track.genre)}`)))}>
-            More {track.genre}
+        {genre && (
+          <button role="menuitem" onClick={act(() => (setNowPlayingOpen(false), navigate(`/genre/${encodeURIComponent(genre)}`)))}>
+            More {genre}
           </button>
         )}
         <button role="menuitem" onClick={act(share)}>Share</button>

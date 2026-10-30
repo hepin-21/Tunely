@@ -230,15 +230,6 @@ a.card__sub:hover { text-decoration: underline; color: var(--text); }
 .quick__play { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--accent-grad); color: #fff; opacity: 0; transition: opacity .15s; flex: none; }
 .quick:hover .quick__play, .quick.is-active .quick__play { opacity: 1; }
 
-/* ============ Onboarding ============ */
-.onboard {
-  display: flex; flex-direction: column; gap: 10px;
-  padding: 24px; border-radius: 16px;
-  background: radial-gradient(circle at 0 0, rgba(139,92,246,.35), transparent 60%), radial-gradient(circle at 100% 100%, rgba(236,72,153,.25), transparent 60%), var(--bg-2);
-  border: 1px solid var(--border);
-}
-.onboard .chips { margin-top: 6px; }
-
 /* ============ Track rows ============ */
 .track-list { display: flex; flex-direction: column; }
 .track-row {
@@ -475,6 +466,47 @@ a.track-row__genre:hover { color: var(--text); text-decoration: underline; }
 .q-item__title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .q-item.is-active .q-item__title { color: var(--accent); }
 .q-item__artist { color: var(--text-2); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q-item__reason { color: var(--accent); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Waves, beat glow and lyrics (--beat is set each frame by the Visualizer) */
+.np__stage { position: relative; }
+.np__stage > :not(.np__glow) { position: relative; z-index: 1; }
+.np__glow {
+  position: absolute; inset: 6%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(167,139,250,.6), rgba(236,72,153,.3) 45%, transparent 70%);
+  filter: blur(40px);
+  opacity: calc(.3 + var(--beat, 0) * .7);
+  transform: scale(calc(1 + var(--beat, 0) * .14));
+  will-change: opacity, transform;
+}
+.viz { display: block; width: 100%; height: 56px; }
+.np__line { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 46px; text-align: center; }
+.np__line-now { font-size: 17px; font-weight: 700; animation: lineIn .35s ease-out; }
+.np__line-next { font-size: 13px; color: var(--text-3); }
+@keyframes lineIn { from { opacity: 0; transform: translateY(6px); } }
+
+.np__lyrics { padding: 0; overflow: hidden; }
+.lyrics {
+  position: relative; flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 4px; padding: 24px 20px;
+  mask-image: linear-gradient(transparent, #000 10%, #000 88%, transparent);
+}
+.lyrics--synced { padding-block: 40%; }
+.lyrics__line {
+  text-align: left; padding: 6px 0; transform-origin: left center;
+  font-size: clamp(20px, 2.2vw, 26px); font-weight: 800; line-height: 1.3;
+  color: rgba(255,255,255,.32); transition: color .3s, transform .3s, text-shadow .3s;
+}
+.lyrics__line.is-past { color: rgba(255,255,255,.5); }
+.lyrics__line:hover { color: rgba(255,255,255,.8); }
+.lyrics__line.is-active { color: #fff; transform: scale(1.03); text-shadow: 0 0 24px rgba(167,139,250,.65); }
+.lyrics__plain p { font-size: 18px; font-weight: 700; line-height: 1.55; }
+.lyrics__plain .lyrics__gap { height: 14px; }
+.lyrics--empty, .lyrics--loading { justify-content: center; }
+.lyrics--empty { align-items: center; text-align: center; gap: 8px; }
+.lyrics__note { font-size: 22px; font-weight: 800; }
+.lyrics__skeleton { height: 22px; margin: 6px 0; background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.14), rgba(255,255,255,.06)); background-size: 200% 100%; }
+.lyrics__credit { margin-top: 18px; }
 
 /* ============ Menus, dialogs, toast ============ */
 .backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.6); animation: fade .2s; }
@@ -606,10 +638,13 @@ a.track-row__genre:hover { color: var(--text); text-decoration: underline; }
   /* Now playing: one column with tabs */
   .np__body { grid-template-columns: 1fr; padding-top: 0; }
   .np__body--art .np__queue { display: none; }
-  .np__body--queue .np__main { display: none; }
+  .np__body--queue .np__main, .np__body--lyrics .np__main { display: none; }
   .np__queue { background: transparent; padding: 0 0 16px; }
-  .np__main { justify-content: space-evenly; gap: 16px; }
-  .np__art { max-height: none; max-width: 100%; }
+  .np__lyrics { padding: 0; }
+  .np__main { justify-content: space-evenly; gap: 12px; }
+  /* Leave room for the waves and the lyric line under the artwork */
+  .np__art { max-height: none; max-width: min(100%, 42vh); }
+  .viz { height: 40px; }
   .np__queue-toggle { display: inline-flex; }
 
   .menu { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: 100%; border-radius: 16px 16px 0 0; padding: 8px 8px calc(12px + var(--safe-b)); animation: sheet .22s ease-out; }

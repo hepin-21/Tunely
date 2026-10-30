@@ -34,8 +34,10 @@ function loadHistory(): string[] {
   }
 }
 
-function TopResult({ track, context }: { track: Track; context: Track[] }) {
-  const { current, isPlaying, playTrack, toggle } = usePlayer()
+// Search results are many versions of what you typed, not a playlist: playing one starts a
+// radio of different songs like it, instead of the next upload of the same song.
+function TopResult({ track }: { track: Track }) {
+  const { current, isPlaying, startRadio, toggle } = usePlayer()
   const active = current?.id === track.id
   return (
     <div className="top-result">
@@ -49,7 +51,7 @@ function TopResult({ track, context }: { track: Track; context: Track[] }) {
       </div>
       <button
         className="play-btn play-btn--big"
-        onClick={() => (active ? toggle() : playTrack(track, context))}
+        onClick={() => (active ? toggle() : startRadio(track))}
         aria-label={active && isPlaying ? 'Pause' : `Play ${track.title}`}
       >
         {active && isPlaying ? <PauseIcon size={24} /> : <PlayIcon size={24} />}
@@ -104,9 +106,9 @@ function SongResults({
           No exact match for “{query}”. Showing the closest songs. Tip: try just the song name or the artist.
         </p>
       )}
-      {top && <TopResult track={top} context={list} />}
+      {top && <TopResult track={top} />}
       {compact && shown.length > 0 && <h2>Songs</h2>}
-      {shown.length > 0 && <TrackList tracks={shown} showPlays />}
+      {shown.length > 0 && <TrackList tracks={shown} showPlays radio />}
 
       {!list.length && quietEmpty && <p className="muted small">No matching songs from independent artists on Audius.</p>}
 
@@ -227,9 +229,9 @@ function YouTubeResults({
   const shown = compact ? rest.slice(0, 5) : rest
   return (
     <section className="section">
-      {top && <TopResult track={top} context={tracks} />}
+      {top && <TopResult track={top} />}
       <h2 className="yt-heading">From YouTube</h2>
-      <TrackList tracks={shown} showPlays />
+      <TrackList tracks={shown} showPlays radio />
       <div className="search-meta">
         {compact && rest.length > 5 && <button className="link-more" onClick={onSeeAll}>See all {tracks.length} from YouTube</button>}
         <span className="muted small">Plays in YouTube's player. YouTube may show its own ads.</span>

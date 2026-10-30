@@ -74,6 +74,33 @@ export function significantTokens(query: string): string[] {
   return queryTokens(query).filter((t) => t.length >= 3 && !STOPWORDS.has(t))
 }
 
+// Words describing a version of a song rather than which song it is
+export const VERSION_WORDS = new Set([
+  'slowed', 'reverb', 'lofi', 'lo', 'fi', 'remix', 'cover', '8d', 'instrumental', 'version', 'acoustic', 'unplugged',
+  'mashup', 'female', 'male', 'karaoke', 'sped', 'up', 'bass', 'boosted', 'dj', 'mix', 'reprise',
+])
+
+/** Words naming the song itself: no version words, upload noise, years or the uploader's name. */
+export function songWords(title: string, artist = ''): Set<string> {
+  const own = new Set(tokens(artist))
+  return new Set(tokens(title).filter((t) => !NOISE.has(t) && !VERSION_WORDS.has(t) && !own.has(t) && !/^(19|20)\d\d$/.test(t)))
+}
+
+/**
+ * True when two titles are the same song in another upload or version:
+ * "Tum Hi Ho (Slowed + Reverb)", "Arijit Singh - Tum Hi Ho" and "Tum Hi Ho | Cover" all match.
+ * Takes the output of songWords().
+ */
+export function sameSong(a: Set<string>, b: Set<string>) {
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a]
+  if (!small.size) return false
+  let shared = 0
+  for (const w of small) if (big.has(w)) shared++
+  // One title inside the other ("Kesariya" in "Kesariya Brahmastra"); a single word only counts against a short title
+  if (shared === small.size && (small.size >= 2 || big.size <= 2)) return true
+  return shared / (a.size + b.size - shared) >= 0.75
+}
+
 /**
  * Same key for re-uploads of one song ("Pal [Slowed And Reverb]" by three accounts),
  * different keys for real versions (slowed, lofi, remix, cover, 8d…), which stay in their words.

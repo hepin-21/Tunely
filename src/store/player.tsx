@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { streamUrl, type Track } from '../api/audius'
-import { similarTo } from '../lib/recommend'
+import { trustedGenre } from '../lib/features'
+import { isEarlySkip, listening } from '../lib/history'
+import { upNext } from '../lib/recommend'
 import { youtubeMedia, type YouTubeMedia } from '../lib/youtubePlayer'
 import { useLibrary } from './library'
 
@@ -20,8 +22,14 @@ interface PlayerState {
   volume: number
   muted: boolean
   error: string | null
+  /** Recommendations are being picked for the queue */
+  suggesting: boolean
+  /** Why each recommended song in the queue was picked, by track id */
+  reasons: Record<string, string>
   playQueue: (tracks: Track[], startIndex?: number) => void
   playTrack: (track: Track, context?: Track[]) => void
+  /** Plays `track`, then songs recommended from it (like a radio station) instead of the list it was in */
+  startRadio: (track: Track) => void
   toggle: () => void
   next: () => void
   prev: () => void
@@ -77,7 +85,7 @@ function shuffled<T>(arr: T[]): T[] {
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const saved = useRef(loadSaved()).current
-  const { addRecent, recent } = useLibrary()
+  const { addRecent, recent, liked, playlists } = useLibrary()
 
   const audioRef = useRef<HTMLAudioElement>(null as unknown as HTMLAudioElement)
   if (!audioRef.current) {
@@ -101,17 +109,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [muted, setMuted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ProgressState>({ time: 0, duration: 0, buffered: 0 })
+  const [suggesting, setSuggesting] = useState(false)
+  const [reasons, setReasons] = useState<Record<string, string>>({})
 
   const current = queue[index] ?? null
   const loadedId = useRef<string | null>(null)
   const wantPlay = useRef(false)
+  // Bumped whenever a new queue starts, so suggestions for the old one are thrown away
+  const queueGen = useRef(0)
   // The in-flight suggestions request, shared so pressing Next during a prefetch waits for it
-  const fetchingMore = useRef<Promise<boolean> | null>(null)
+  const fetchingMore = useRef<{ gen: number; promise: Promise<boolean> } | null>(null)
   const retriedId = useRef<string | null>(null)
+  // Seconds heard of the current song, to tell a skip from a song you listened to
+  const heard = useRef(0)
 
   // Keep latest values reachable from audio event handlers
-  const live = useRef({ queue, index, repeat, autoplay, recent })
-  live.current = { queue, index, repeat, autoplay, recent }
+  const live = useRef({ queue, index, repeat, autoplay, recent, liked, playlists })
+  live.current = { queue, index, repeat, autoplay, recent, liked, playlists }
 
   // Persist player state so the app resumes where you left off
   useEffect(() => {
@@ -140,6 +154,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (loadedId.current === current.id) return
     loadedId.current = current.id
     retriedId.current = null
+    heard.current = 0
     setError(null)
     setProgress({ time: 0, duration: current.duration, buffered: 0 })
     const media = mediaFor(current)
@@ -155,30 +170,56 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setIsLoading(true)
       media.play().catch(() => setIsLoading(false))
       addRecent(current)
+      listening.played(current)
     }
   }, [audio, current, addRecent])
 
-  /** Append suggested tracks to the queue so music never stops. */
+  /** Append recommended songs (seeded by the current one) to the queue so music never stops. */
   const extendWithSuggestions = useCallback((): Promise<boolean> => {
-    if (fetchingMore.current) return fetchingMore.current
-    const { queue: q, index: i } = live.current
+    const gen = queueGen.current
+    if (fetchingMore.current?.gen === gen) return fetchingMore.current.promise
+    const { queue: q, index: i, recent: r, liked: l, playlists: p } = live.current
     const seed = q[i]
     if (!seed) return Promise.resolve(false)
-    const exclude = new Set([...q.map((t) => t.id), ...live.current.recent.slice(0, 30).map((t) => t.id)])
-    fetchingMore.current = similarTo(seed, exclude, 10)
-      .then((more) => {
+    setSuggesting(true)
+    const promise = upNext({
+      seed,
+      session: q.slice(Math.max(0, i - 5), i),
+      avoid: [...q, ...r.slice(0, 30)],
+      liked: l,
+      recent: r,
+      playlists: p,
+    })
+      .then((picks) => {
+        // A new queue started meanwhile
+        if (gen !== queueGen.current) return false
+        const queued = new Set(live.current.queue.map((t) => t.id))
+        const fresh = picks.filter((x) => !queued.has(x.track.id))
+        const more = fresh.map((x) => x.track)
         if (more.length) {
           // Update the live copy right away so next() sees the new songs before React re-renders
           live.current.queue = [...live.current.queue, ...more]
           setQueue((prev) => [...prev, ...more])
+          setReasons((prev) => ({ ...prev, ...Object.fromEntries(fresh.map((x) => [x.track.id, x.reason])) }))
         }
         return more.length > 0
       })
       .catch(() => false)
       .finally(() => {
+        if (fetchingMore.current?.promise !== promise) return
         fetchingMore.current = null
+        setSuggesting(false)
       })
-    return fetchingMore.current
+    fetchingMore.current = { gen, promise }
+    return promise
+  }, [])
+
+  /** Forget suggestions meant for the previous queue. */
+  const startNewQueue = useCallback(() => {
+    queueGen.current++
+    fetchingMore.current = null
+    setSuggesting(false)
+    setReasons({})
   }, [])
 
   const goTo = useCallback((i: number) => {
@@ -186,23 +227,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setIndex(i)
   }, [])
 
-  const next = useCallback(() => {
+  /** Moves to the next song; at the end of the queue, recommendations keep the music going. */
+  const advance = useCallback(() => {
     const { queue: q, index: i, repeat: r, autoplay: auto } = live.current
     if (i < q.length - 1) return goTo(i + 1)
     if (r === 'all' && q.length) return goTo(0)
     if (auto) {
+      const gen = queueGen.current
       extendWithSuggestions().then(() => {
-        if (live.current.index === i && i < live.current.queue.length - 1) goTo(i + 1)
+        if (gen === queueGen.current && live.current.index === i && i < live.current.queue.length - 1) goTo(i + 1)
       })
       return
     }
     activeRef.current.pause()
   }, [goTo, extendWithSuggestions])
 
+  /** Next pressed by you: leaving a song early counts as a skip, which recommendations learn from. */
+  const next = useCallback(() => {
+    const track = live.current.queue[live.current.index]
+    const duration = activeRef.current.duration || track?.duration || 0
+    if (track && heard.current > 0) {
+      if (isEarlySkip(heard.current, duration)) listening.skipped(track)
+      else if (duration && heard.current >= duration * 0.8) listening.finished(track)
+    }
+    advance()
+  }, [advance])
+
   const prev = useCallback(() => {
     const media = activeRef.current
     // Like most players: restart the song if we're more than 3s in
     if (media.currentTime > 3 || live.current.index === 0) {
+      const track = live.current.queue[live.current.index]
+      // Starting a song over after hearing most of it means you wanted it again
+      if (track && heard.current >= (media.duration || track.duration) * 0.5) listening.repeated(track)
       media.currentTime = 0
       return
     }
@@ -213,15 +270,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onTime = (m: Media) => {
       const buffered = m.buffered.length ? m.buffered.end(m.buffered.length - 1) : 0
+      heard.current = Math.max(heard.current, m.currentTime)
       setProgress({ time: m.currentTime, duration: m.duration || live.current.queue[live.current.index]?.duration || 0, buffered })
     }
     const onEnded = (m: Media) => {
+      const track = live.current.queue[live.current.index]
       if (live.current.repeat === 'one') {
+        if (track) listening.repeated(track)
         m.currentTime = 0
         m.play().catch(() => {})
         return
       }
-      next()
+      if (track) listening.finished(track)
+      advance()
     }
     const onError = (m: Media) => {
       if (!m.src) return
@@ -245,8 +306,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       const reason = m === audio ? 'This track could not be played.' : (youtubeMedia.errorReason ?? "This YouTube video can't be played here.")
       setError(`${reason} Skipping…`)
-      // Skip broken tracks automatically
-      setTimeout(() => next(), 2500)
+      // Skip broken tracks automatically (not counted as your skip)
+      setTimeout(() => advance(), 2500)
     }
 
     const handlers: [string, (m: Media) => void][] = [
@@ -284,7 +345,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => {
       for (const m of [audio, youtubeMedia]) for (const [type, l] of listeners) m.removeEventListener(type, l)
     }
-  }, [audio, next])
+  }, [audio, advance])
 
   // Pre-fetch suggestions when nearing the end of the queue
   useEffect(() => {
@@ -305,13 +366,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       wantPlay.current = true
       if (start.id === loadedId.current) {
+        listening.repeated(start)
         activeRef.current.currentTime = 0
         activeRef.current.play().catch(() => {})
       }
+      startNewQueue()
       setQueue(q)
       setIndex(i)
     },
-    [shuffle],
+    [shuffle, startNewQueue],
   )
 
   const playTrack = useCallback(
@@ -323,6 +386,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playQueue([track], 0)
     },
     [playQueue],
+  )
+
+  const startRadio = useCallback(
+    (track: Track) => {
+      playQueue([track], 0)
+      // Fill "Up next" right away instead of when the song ends
+      live.current.queue = [track]
+      live.current.index = 0
+      if (live.current.autoplay) extendWithSuggestions()
+    },
+    [playQueue, extendWithSuggestions],
   )
 
   const toggle = useCallback(() => {
@@ -402,7 +476,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: current.title,
       artist: current.artist,
-      album: current.genre || 'Tunely',
+      album: trustedGenre(current) || 'Tunely',
       artwork: [
         ...(current.artwork ? [{ src: current.artwork, sizes: '480x480', type: 'image/jpeg' }] : []),
         ...(current.artworkLarge ? [{ src: current.artworkLarge, sizes: '1000x1000', type: 'image/jpeg' }] : []),
@@ -466,8 +540,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       volume,
       muted,
       error,
+      suggesting,
+      reasons,
       playQueue,
       playTrack,
+      startRadio,
       toggle,
       next,
       prev,
@@ -482,7 +559,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       cycleRepeat,
       toggleAutoplay,
     }),
-    [queue, index, current, isPlaying, isLoading, shuffle, repeat, autoplay, volume, muted, error, playQueue, playTrack, toggle, next, prev, seek, goTo, playNext, addToQueue, removeFromQueue, setVolume, toggleMute, toggleShuffle, cycleRepeat, toggleAutoplay],
+    [queue, index, current, isPlaying, isLoading, shuffle, repeat, autoplay, volume, muted, error, suggesting, reasons, playQueue, playTrack, startRadio, toggle, next, prev, seek, goTo, playNext, addToQueue, removeFromQueue, setVolume, toggleMute, toggleShuffle, cycleRepeat, toggleAutoplay],
   )
 
   return (

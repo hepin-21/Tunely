@@ -5,6 +5,7 @@ import { CardSkeletons, ErrorState, RowSkeletons, Shelf, TrackCard } from '../co
 import { Hero } from '../components/Hero'
 import { VerifiedIcon } from '../components/Icons'
 import { TrackList } from '../components/TrackRow'
+import { belongsInGenre, trustedGenre } from '../lib/features'
 import { formatCount } from '../lib/format'
 import { useAsync } from '../lib/useAsync'
 
@@ -16,7 +17,10 @@ function topGenre(genres: string[]) {
 
 function SimilarInGenre({ genre, artistId }: { genre: string; artistId: string }) {
   const { data, loading } = useAsync(
-    () => audius.trending({ genre, time: 'month', limit: 30 }).then((ts) => ts.filter((t) => t.artistId !== artistId).slice(0, 16)),
+    () =>
+      audius
+        .trending({ genre, time: 'month', limit: 30 })
+        .then((ts) => ts.filter((t) => t.artistId !== artistId && belongsInGenre(genre)(t)).slice(0, 16)),
     [genre, artistId],
   )
   if (!loading && !data?.length) return null
@@ -34,7 +38,7 @@ export function ArtistPage() {
 
   if (artist.error) return <div className="page"><ErrorState message="Artist not found." onRetry={artist.reload} /></div>
   const a = artist.data
-  const genre = tracks.data && topGenre(tracks.data.map((t) => t.genre))
+  const genre = tracks.data && topGenre(tracks.data.map(trustedGenre))
 
   return (
     <div className="page page--hero">

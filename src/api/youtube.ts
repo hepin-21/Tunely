@@ -162,6 +162,7 @@ function toTrack(v: any): Track {
     mood: null,
     plays: Number(v.statistics?.viewCount ?? 0),
     likes: Number(v.statistics?.likeCount ?? 0),
+    tags: (sn.tags ?? []).join(',').slice(0, 200) || undefined,
     collection: detectLanguage(title, (sn.tags ?? []).join(' '), channel),
   }
 }
